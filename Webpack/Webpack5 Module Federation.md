@@ -23,7 +23,7 @@ webpack5 Module Federation 发布也已经很久了，虽然对他垂涎不已�
 毕竟是webpack5的新功能，自然我们用的时候，就是通过webpack的配置了。
 
 ```javascript
-  // webpack.config.js
+  // Webpack.config.js
   plugins: [
     new ModuleFederationPlugin({
       // 提供给其他服务加载的文件
