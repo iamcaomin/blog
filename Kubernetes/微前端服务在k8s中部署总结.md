@@ -1,4 +1,4 @@
-# 微前端服务在k8s中部署总结
+# 微前端服务在k8s中的部署总结
 
 
 
@@ -11,7 +11,7 @@
 镜像打包使用的是`docker`，这部分最重要的就是`Dockerfile`文件的编写，需要熟悉`Dockerfile`指令，包括但不限于`FROM`、`RUN`、`COPY`、`ADD`、`CMD`等，由于是手动部署，所以`Dockerfile`文件编写的很简单，只需要把前端事先构建好的文件都复制到镜像中即可。如下：
 
 ```
-# 基于nginx:1.21.1-alpine镜像构建的基础镜像，因为alpine版本的镜像是轻量发行版，功能足够满足生产需求，最终基础镜像大小是9.47M
+# 基于nginx:1.21.1-alpine镜像构建的基础镜像，因为alpine版本的镜像是轻量发行版，功能足够满足生产需求，最终打包后的基础镜像大小是9.47M
 FROM **/frontend/base:latest
 
 # 在Dockerfile文件的同级下的dist文件夹，复制到基础镜像中的/usr/share/nginx/html/
@@ -22,7 +22,7 @@ COPY nginx.conf /etc/nginx/nginx.conf
 CMD nginx -g "daemon off;"
 ```
 
-虽然`docker build`可以进行镜像打包，但如果在微前端中，有多个前端服务`docker build`的效率就比较低，所以这里使用`Docker Compose`管理容器，更高效的对打包的镜像进行测试，当然需要一个配置文件：
+虽然`docker build`可以进行镜像打包，但如果在微前端中，有多个前端服务`docker build`的效率就比较低，所以这里使用`Docker Compose`管理容器，更高效的对打包的镜像进行测试，当然相应的也需要一个配置文件：
 
 ```
 # docker-compose.yaml
@@ -98,7 +98,7 @@ docker push [远程仓库/目录:版本号-时间戳]
 helm init [FLAGS]
 ```
 
-会在当前的目录下生成一个目录，内容大概如下：
+会在当前的目录下生成一个目录，内容大致如下：
 
 ```
 frontend
@@ -122,7 +122,7 @@ frontend
 replicaCount: 3 # pod实例数
 
 name: frontent-portal # 都是在name的基础上对pod和svc名称做的处理
-namespace: default # 命名空间，可省略
+namespace: default # 命名空间，如果不指定，则默认是default
 
 image: # 镜像信息
   repository: **/sth-frontend
@@ -213,7 +213,7 @@ spec:
 
 ![image-20220224134534820](../images/image-20220224134534820.png)
 
-由于微服务中会有多个服务，所以`[flags]`需要使用`--set` 重置`Values.yaml`中的配置项，以及`--name`指定名称，比如：
+由于微服务中会有多个服务，所以`[flags]`需要使用`--set` 重置`values.yaml`中的配置项，以及`--name`指定名称，比如：
 
 ```
 helm install --set image=sth,tag=1.0.0-20220222222222 --name frontend-sth /home/frontend
@@ -229,7 +229,7 @@ helm install --set image=sth,tag=1.0.0-20220222222222 --name frontend-sth /home/
 
 #### 卸载
 
-删除包就很简单了，直接用`helm delete --purge`，注意`--purge`，只有从内存中释放出来，才能再次安装同名的包
+删除包就很简单了，直接用`helm delete --purge`，注意`--purge`，只有从内存中释放出来，才能再次安装同名的包。
 
 #### 更新
 
@@ -243,9 +243,9 @@ helm upgrade --set image=sth,tag=1.0.0-20220222222222 frontend-sth /home/fronten
 
 ![image-20220222210119231](../images/image-20220222210119231.png)
 
-### 其余配置
+### 其他配置
 
-#### 代理
+#### Ingress代理
 
 所有的服务都已经构建好了，都可以通过集群分配的`ip`（假设所有的服务类型都是可以通过集群外访问的`NodePort`或者`LoadBalancer`）和端口进行访问，但是呢，如果我想访问其他的服务就需要手动修改浏览器中的端口，非常的不方便，所以这就是代理的作用了，对于用户来说，也是极为的不解，如果不处理，项目多半也就黄了。
 
@@ -285,7 +285,7 @@ spec:
     - host: **.com # 域名需要改成实际域名
       http:
         paths:
-          - path: /
+          - path: / # 路由规则
             backend:
               serviceName: frontend-portal-svc # chart中对应的服务名
               servicePort: 80 # docker镜像暴露的端口
@@ -312,9 +312,11 @@ kubectl apply -f ingress.yaml
 
 如果想要改一下配置，可以通过`kubectl edit ingress sth-ingress`，操作与在`vim`编辑器一样，保存后等待几分钟就会生效。
 
-#### HTTPS证书
+#### TLS证书
 
-证书配置比较简单，但是由于需要保密，所以使用`Secret`保存证书，以证书的安全性。
+证书配置比较简单，直接使用`Secret`保存证书，以证书的安全性。
+
+![image-20220225104327679](../images/image-20220225104327679.png)
 
 ```
 # 创建成功后即生效
@@ -324,17 +326,18 @@ kubectl create secret tls sth-secret --cert=/home/frontend/tls/**.pem --key=/hom
 kubectl delete secret sth-secret
 ```
 
-#### configMap
+#### configMap数据卷
 
-如果需要访问文件，但是文件数量较少，不需要经常更新，而且不适合放到镜像中，这种情况下创建文件系统有点小题大作浪费资源，那么就可以选择使用`configMap`存放。`configMap`的使用方法也很简单，与`Secret`操作一样：
+如果需要访问文件，但是文件数量较少，不需要经常更新，而且不适合放到镜像中，这种情况下创建文件系统有点小题大作浪费资源，那么就可以选择使用`configMap`来存放文件。`configMap`的使用方法也很简单，与`Secret`操作几乎一样：
 
 ```
+# kubectl create configmap NAME [--from-file=[key=]source] [--from-literal=key1=value1] [--dry-run] [options]
 # 创建
-kubectl create configmap wechat-mp --from-file /home/frontend/**.txt
+kubectl create configmap **-cfm --from-file /home/frontend/**.txt
 
 # 删除，用于微信网页授权文件更改
 # 删除后重新创建，需要一定的时间才能生效
-kubectl delete configmap wechat-mp
+kubectl delete configmap **-cfm
 ```
 
 ### 最后
